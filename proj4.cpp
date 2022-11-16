@@ -98,7 +98,8 @@ void usage() {
 
 /* initiates packet trace process */
 void trace(int sflag, int lflag, int pflag, int mflag) {
-  if (sflag) {
+  /**TODO implement modes */
+  /*if (sflag) {
     smode();
   } else if (lflag) {
     lmode();
@@ -106,7 +107,7 @@ void trace(int sflag, int lflag, int pflag, int mflag) {
     pmode();
   } else if (mflag) {
     mmode();
-  }
+  }*/
 }
 
 void errexit(char *msg) {
@@ -157,12 +158,17 @@ unsigned short next_packet(int fd, struct pkt_info *pinfo) {
         /* we don't have anything beyond the ethernet header to process */
         return (1);
     /* set pinfo->iph to start of IP header */
-    
+    pinfo->iph = (struct iphdr *) (pinfo->pkt + ETHER_HDR_LEN);
+    pinfo->iph->protocol = ntohs (pinfo->iph->protocol);
     /* if TCP packet,
           set pinfo->tcph to the start of the TCP header
           setup values in pinfo->tcph, as needed */
+    if (pinfo->iph->protocol == IPPROTO_TCP)
+        pinfo->tcph = (struct tcphdr *) (pinfo->iph + ntohs (pinfo->iph->tot_len));
     /* if UDP packet,
           set pinfo->udph to the start of the UDP header,
           setup values in pinfo->udph, as needed */
+    if (pinfo->iph->protocol == IPPROTO_UDP)
+        pinfo->udph = (struct udphdr *) (pinfo->iph + ntohs (pinfo->iph->tot_len));
     return (1);
 }
