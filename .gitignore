@@ -1,0 +1,7 @@
+# blacklist all executables
+*
+
+# do not ignore .gitignore, .cpp source code, or Makefile
+!.gitignore
+!*.cpp
+!Makefile
