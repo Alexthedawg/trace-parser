@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string>
 #include <cstring>
+#include <math.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <net/ethernet.h>
@@ -23,6 +24,7 @@
 
 /* constants */
 #define OPTSTR "t:slpm"
+#define UTOD   pow(10, USECS_LEN)
 
 /* optarg is the argument following an element */
 extern char *optarg;
@@ -30,10 +32,12 @@ extern char *optarg;
 /* function declarations below */
 void usage();
 void trace(int sflag, int lflag, int pflag, int mflag);
-void smode();
-void lmode();
-void pmode();
-void mmode();
+void smode(int fd);
+void lmode(int fd);
+void pmode(int fd);
+void mmode(int fd);
+void errexit(char *msg);
+unsigned short next_packet(int fd, struct pkt_info *pinfo);
 
 /* global variables */
 std::string trace_file;
@@ -53,18 +57,19 @@ int main(int argc, char **argv) {
     switch (opt) {
       case 't':
         trace_file = optarg;
+        tflag++;
         break;
       case 's':
-        printf("%c %d\n", opt, ++sflag);
+        ++sflag;
         break;
       case 'l':
-        printf("%c %d\n", opt, ++lflag);
+        ++lflag;
         break;
       case 'p':
-        printf("%c %d\n", opt, ++pflag);
+        ++pflag;
         break;
       case 'm':
-        printf("%c %d\n", opt, ++mflag);
+        ++mflag;
         break;
       default:
         printf("Invalid argument\n");
@@ -98,10 +103,13 @@ void usage() {
 
 /* initiates packet trace process */
 void trace(int sflag, int lflag, int pflag, int mflag) {
-  /**TODO implement modes */
-  /*if (sflag) {
-    smode();
-  } else if (lflag) {
+  FILE *file;
+  file = fopen(&trace_file[0], "r");
+  int fd = fileno(file);
+  /*TODO implement modes */
+  if (sflag) {
+    smode(fd);
+  }/* else if (lflag) {
     lmode();
   } else if (pflag) {
     pmode();
@@ -110,6 +118,40 @@ void trace(int sflag, int lflag, int pflag, int mflag) {
   }*/
 }
 
+/* runs program in s mode*/
+void smode(int fd) {
+  struct pkt_info *pinfo;
+  pinfo = (struct pkt_info *) malloc(sizeof (*pinfo));
+  double first_time = -1;
+  double final_time = -1;
+  int numpkts = 0;
+  int numips = 0;
+  
+  while (next_packet(fd, pinfo) == 1) {
+    if (first_time == -1)
+      first_time = pinfo->now;
+    final_time = pinfo->now;
+    if (pinfo->ethh->ether_type == ETHERTYPE_IP &&
+        pinfo->caplen > sizeof (struct ether_header))
+      numips++;
+    numpkts++;
+  } 
+  free(pinfo);
+  
+  fprintf(stdout, "FIRST PKT: %0.6f\n", first_time);
+  fprintf(stdout, "LAST PKT: %0.6f\n", final_time);
+  fprintf(stdout, "TOTAL PACKETS: %d\n", numpkts);
+  fprintf(stdout, "IP PACKETS: %d\n", numips);
+}
+
+/* runs program in s mode*/
+
+/* runs program in s mode*/
+
+/* runs program in s mode*/
+
+
+/* error message function for next_packet */
 void errexit(char *msg) {
     fprintf (stdout,"%s\n",msg);
     exit (1);
@@ -137,6 +179,8 @@ unsigned short next_packet(int fd, struct pkt_info *pinfo) {
         errexit ((char *) "cannot read meta information");
     pinfo->caplen = ntohs (meta.caplen);
     /* set pinfo->now based on meta.secs & meta.usecs */
+    pinfo->now = ntohl (meta.secs);
+    pinfo->now += ((double) ntohl (meta.usecs)) / (double) (UTOD);
     if (pinfo->caplen == 0)
         return (1);
     if (pinfo->caplen > MAX_PKT_SIZE)
