@@ -23,8 +23,10 @@
 #include "next.h"
 
 /* constants */
-#define OPTSTR "t:slpm"
-#define UTOD   pow(10, USECS_LEN)
+#define OPTSTR     "t:slpm"
+#define UTOD       pow(10, USECS_LEN)
+#define BTOBYTE    32 / 8
+#define UDPH_LEN   8
 
 /* optarg is the argument following an element */
 extern char *optarg;
@@ -109,28 +111,32 @@ void trace(int sflag, int lflag, int pflag, int mflag) {
   /*TODO implement modes */
   if (sflag) {
     smode(fd);
-  }/* else if (lflag) {
-    lmode();
-  } else if (pflag) {
-    pmode();
+  } else if (lflag) {
+    lmode(fd);
+  }/* else if (pflag) {
+    pmode(fd);
   } else if (mflag) {
-    mmode();
+    mmode(fd);
   }*/
 }
 
 /* runs program in s mode*/
 void smode(int fd) {
+  /* initializing variables */
   struct pkt_info *pinfo;
   pinfo = (struct pkt_info *) malloc(sizeof (*pinfo));
+  /* tracking info: time of first/final pkt and number of pkts */
   double first_time = -1;
   double final_time = -1;
   int numpkts = 0;
   int numips = 0;
   
+  /* while there is a next packet, update variables */
   while (next_packet(fd, pinfo) == 1) {
     if (first_time == -1)
       first_time = pinfo->now;
     final_time = pinfo->now;
+    /* if there is no ipheader, do not increment numips */
     if (pinfo->ethh->ether_type == ETHERTYPE_IP &&
         pinfo->caplen > sizeof (struct ether_header))
       numips++;
@@ -138,17 +144,70 @@ void smode(int fd) {
   } 
   free(pinfo);
   
+  /* report information */
   fprintf(stdout, "FIRST PKT: %0.6f\n", first_time);
   fprintf(stdout, "LAST PKT: %0.6f\n", final_time);
   fprintf(stdout, "TOTAL PACKETS: %d\n", numpkts);
   fprintf(stdout, "IP PACKETS: %d\n", numips);
 }
 
-/* runs program in s mode*/
+/* runs program in l mode*/
+void lmode(int fd) {
+  /* initializing variables */
+  struct pkt_info *pinfo;
+  pinfo = (struct pkt_info *) malloc(sizeof (*pinfo));
+  
+  /* while there is a next packet, report information */
+  while (next_packet(fd, pinfo) == 1) {
+    
+    /* confirm that there is an IPv4 header */
+    if (pinfo->ethh->ether_type == ETHERTYPE_IP) {
+      /* report timestamp ts and caplen */
+      fprintf(stdout, "%0.6f ", pinfo->now);
+      fprintf(stdout, "%hu ", pinfo->caplen);
+      /* print out additional ip header info if it exists */
+       
+      if (pinfo->caplen > sizeof (struct ether_header)) {
+        /* report total ip_len and header iphl */
+        fprintf(stdout, "%i ", pinfo->iph->tot_len);
+        fprintf(stdout, "%i ", pinfo->iph->ihl * BTOBYTE);
+        
+        /* discern the transport protocol */
+	if (pinfo->iph->protocol == IPPROTO_TCP) {
+          /* report protocol is tcp */
+          fprintf(stdout, "T ");
+          /* report tcp header length */
+          fprintf(stdout, "%i ", pinfo->tcph->doff * BTOBYTE);
+          /* report payload size */
+          fprintf(stdout, "%i", pinfo->iph->tot_len - (pinfo->iph->ihl * BTOBYTE) - (pinfo->tcph->doff * BTOBYTE));
+	}
+	else if (pinfo->iph->protocol == IPPROTO_UDP) {
+          /* report protocol is udp */
+          fprintf(stdout, "U ");
+          /* report udp header length */
+          fprintf(stdout, "%i ", pinfo->udph->len);
+          /* report payload size */
+          fprintf(stdout, "%i", pinfo->iph->tot_len - (pinfo->iph->ihl * BTOBYTE) - pinfo->udph->len);
+	}
+	else {
+          /* if the protocol is not tpc or udp, then skip remaining */
+          fprintf(stdout, "? ? ?");
+	}
+      }
+      /* non-existent ip header */
+      else {
+        fprintf(stdout, "- - - - -");
+      }
+      /* make newline and flush */
+      fprintf(stdout, "\n");
+      fflush(stdout);
+    }
+  }
+}
 
-/* runs program in s mode*/
+/* runs program in p mode*/
 
-/* runs program in s mode*/
+/* runs program in m mode*/
 
 
 /* error message function for next_packet */
@@ -202,17 +261,22 @@ unsigned short next_packet(int fd, struct pkt_info *pinfo) {
         /* we don't have anything beyond the ethernet header to process */
         return (1);
     /* set pinfo->iph to start of IP header */
-    pinfo->iph = (struct iphdr *) (pinfo->pkt + ETHER_HDR_LEN);
-    pinfo->iph->protocol = ntohs (pinfo->iph->protocol);
+    pinfo->iph = (struct iphdr *) (&pinfo->pkt[sizeof (struct ether_header)]);
+    /* set relevant ip header fields in pinfo using ntohl/s */
+    pinfo->iph->tot_len = ntohs (pinfo->iph->tot_len);
+    pinfo->iph->ihl = pinfo->iph->ihl;
+    pinfo->iph->protocol = pinfo->iph->protocol;
     /* if TCP packet,
           set pinfo->tcph to the start of the TCP header
           setup values in pinfo->tcph, as needed */
     if (pinfo->iph->protocol == IPPROTO_TCP)
-        pinfo->tcph = (struct tcphdr *) (pinfo->iph + ntohs (pinfo->iph->tot_len));
+        pinfo->tcph = (struct tcphdr *) (&pinfo->pkt[sizeof (struct ether_header) + pinfo->iph->ihl * BTOBYTE]);
     /* if UDP packet,
           set pinfo->udph to the start of the UDP header,
           setup values in pinfo->udph, as needed */
-    if (pinfo->iph->protocol == IPPROTO_UDP)
-        pinfo->udph = (struct udphdr *) (pinfo->iph + ntohs (pinfo->iph->tot_len));
+    if (pinfo->iph->protocol == IPPROTO_UDP) {
+        pinfo->udph = (struct udphdr *) (&pinfo->pkt[sizeof (struct ether_header) + pinfo->iph->ihl * BTOBYTE]);
+        pinfo->udph->len = UDPH_LEN;
+    }
     return (1);
 }
