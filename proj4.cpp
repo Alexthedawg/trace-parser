@@ -20,6 +20,7 @@
 #include <netinet/tcp.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 #include "next.h"
 
 /* constants */
@@ -27,7 +28,7 @@
 #define UTOD       pow(10, USECS_LEN)
 #define BTOBYTE    32 / 8
 #define UDPH_LEN   8
-
+#define IP_LEN     4
 /* optarg is the argument following an element */
 extern char *optarg;
 
@@ -38,6 +39,7 @@ void smode(int fd);
 void lmode(int fd);
 void pmode(int fd);
 void mmode(int fd);
+void print_ip(unsigned char *ip);
 void errexit(char *msg);
 unsigned short next_packet(int fd, struct pkt_info *pinfo);
 
@@ -113,9 +115,9 @@ void trace(int sflag, int lflag, int pflag, int mflag) {
     smode(fd);
   } else if (lflag) {
     lmode(fd);
-  }/* else if (pflag) {
+  } else if (pflag) {
     pmode(fd);
-  } else if (mflag) {
+  } /* else if (mflag) {
     mmode(fd);
   }*/
 }
@@ -203,12 +205,46 @@ void lmode(int fd) {
       fflush(stdout);
     }
   }
+  free(pinfo);
 }
 
 /* runs program in p mode*/
+void pmode(int fd) {
+  /* initializing variables */
+  struct pkt_info *pinfo;
+  pinfo = (struct pkt_info *) malloc(sizeof (*pinfo));
+  struct in_addr ip_addr;
+  
+  while (next_packet(fd, pinfo) == 1) {
+    /* if there is an IPv4 header with a tcp header, continue */
+    if ((pinfo->ethh->ether_type == ETHERTYPE_IP)
+        && (pinfo->caplen > sizeof (struct ether_header))
+        && (pinfo->iph->protocol == IPPROTO_TCP)) {
+      /* report timestamp ts */
+      fprintf(stdout, "%0.6f ", pinfo->now);
+      /* report source + dest ip addresses */
+      ip_addr.s_addr = pinfo->iph->saddr;
+      fprintf(stdout, "%s ", inet_ntoa(ip_addr));
+      ip_addr.s_addr = pinfo->iph->daddr;
+      fprintf(stdout, "%s ", inet_ntoa(ip_addr));
+      /* report time to live */
+      fprintf(stdout, "%u ", pinfo->iph->ttl);
+      /* report source port number */
+      fprintf(stdout, "%u ", pinfo->tcph->source);
+      /* report destination port number */
+      fprintf(stdout, "%u ", pinfo->tcph->dest);
+      /* report seq and also ack number, if available */
+      fprintf(stdout, "%u ", pinfo->tcph->seq);
+      if (pinfo->tcph->ack)
+        fprintf(stdout, "%u\n", pinfo->tcph->ack_seq);
+      else
+        fprintf(stdout, "-\n");
+    }
+  }
+  free(pinfo);
+}
 
 /* runs program in m mode*/
-
 
 /* error message function for next_packet */
 void errexit(char *msg) {
@@ -266,11 +302,19 @@ unsigned short next_packet(int fd, struct pkt_info *pinfo) {
     pinfo->iph->tot_len = ntohs (pinfo->iph->tot_len);
     pinfo->iph->ihl = pinfo->iph->ihl;
     pinfo->iph->protocol = pinfo->iph->protocol;
+    pinfo->iph->saddr = pinfo->iph->saddr;
+    pinfo->iph->daddr = pinfo->iph->daddr;
     /* if TCP packet,
           set pinfo->tcph to the start of the TCP header
           setup values in pinfo->tcph, as needed */
-    if (pinfo->iph->protocol == IPPROTO_TCP)
+    if (pinfo->iph->protocol == IPPROTO_TCP) {
         pinfo->tcph = (struct tcphdr *) (&pinfo->pkt[sizeof (struct ether_header) + pinfo->iph->ihl * BTOBYTE]);
+        pinfo->tcph->source = ntohs (pinfo->tcph->source);
+        pinfo->tcph->dest = ntohs (pinfo->tcph->dest);
+        pinfo->tcph->window = ntohs (pinfo->tcph->window);
+	pinfo->tcph->seq = ntohl (pinfo->tcph->seq);
+        pinfo->tcph->ack_seq = ntohl (pinfo->tcph->ack_seq);
+    }
     /* if UDP packet,
           set pinfo->udph to the start of the UDP header,
           setup values in pinfo->udph, as needed */
