@@ -2,11 +2,11 @@ CC=gcc
 CXX=g++
 CFLAGS=-Wall -Werror -g
 
-TARGETS=proj4
+TARGETS=trace-parser
 
 All: $(TARGETS)
 
-proj4: proj4.o
+trace-parser: trace-parser.o
 	$(CXX) $(CFLAGS) -o $@ $<
 
 %.o: %.cpp

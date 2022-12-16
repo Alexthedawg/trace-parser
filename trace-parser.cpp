@@ -1,9 +1,12 @@
-/* Note (take this out before final submission):
- * format of the c++ program -
- * 1. include libraries
- * 2. define constants
- * 3. extern variables
- * 4. function declaration
+/* Name: Alex Wang
+ * CaseID: axw582
+ * File Name: proj4.cpp
+ * Date Created: November, 1, 2022?
+ * This code analyzes the contents of a trace file with 4 different modes.
+ * -s: shows timestamps, total packets, and total ip packets.
+ * -l: shows the various header + payload lengths in a packet.
+ * -p: shows the ips, ports, and seq/ack nos per packet.
+ * -m: shows the ips and the payload from source to destination in each packet.
  */
 
 #include <stdio.h>
@@ -110,16 +113,16 @@ void trace(int sflag, int lflag, int pflag, int mflag) {
   FILE *file;
   file = fopen(&trace_file[0], "r");
   int fd = fileno(file);
-  /*TODO implement modes */
+  /* choosing a mode */
   if (sflag) {
     smode(fd);
   } else if (lflag) {
     lmode(fd);
   } else if (pflag) {
     pmode(fd);
-  } /* else if (mflag) {
+  } else if (mflag) {
     mmode(fd);
-  }*/
+  }
 }
 
 /* runs program in s mode*/
@@ -175,7 +178,8 @@ void lmode(int fd) {
         fprintf(stdout, "%i ", pinfo->iph->ihl * BTOBYTE);
         
         /* discern the transport protocol */
-	if (pinfo->iph->protocol == IPPROTO_TCP) {
+	if (pinfo->iph->protocol == IPPROTO_TCP
+	    && (pinfo->iph->tot_len - pinfo->iph->ihl > 0)) {
           /* report protocol is tcp */
           fprintf(stdout, "T ");
           /* report tcp header length */
@@ -183,7 +187,8 @@ void lmode(int fd) {
           /* report payload size */
           fprintf(stdout, "%i", pinfo->iph->tot_len - (pinfo->iph->ihl * BTOBYTE) - (pinfo->tcph->doff * BTOBYTE));
 	}
-	else if (pinfo->iph->protocol == IPPROTO_UDP) {
+	else if (pinfo->iph->protocol == IPPROTO_UDP
+	         && (pinfo->iph->tot_len - pinfo->iph->ihl > 0)) {
           /* report protocol is udp */
           fprintf(stdout, "U ");
           /* report udp header length */
@@ -219,6 +224,7 @@ void pmode(int fd) {
     /* if there is an IPv4 header with a tcp header, continue */
     if ((pinfo->ethh->ether_type == ETHERTYPE_IP)
         && (pinfo->caplen > sizeof (struct ether_header))
+        && (pinfo->iph->tot_len - pinfo->iph->ihl > 0)
         && (pinfo->iph->protocol == IPPROTO_TCP)) {
       /* report timestamp ts */
       fprintf(stdout, "%0.6f ", pinfo->now);
@@ -245,6 +251,28 @@ void pmode(int fd) {
 }
 
 /* runs program in m mode*/
+void mmode(int fd) {
+ /* initializing variables */
+  struct pkt_info *pinfo;
+  pinfo = (struct pkt_info *) malloc(sizeof (*pinfo));
+  struct in_addr ip_addr;
+
+  while (next_packet(fd, pinfo) == 1) {
+    /* if there is an IPv4 header with a tcp header, continue */
+    if ((pinfo->ethh->ether_type == ETHERTYPE_IP)
+        && (pinfo->caplen > sizeof (struct ether_header))
+        && (pinfo->iph->tot_len - pinfo->iph->ihl > 0)
+        && (pinfo->iph->protocol == IPPROTO_TCP)) { 
+      /* report source and destination ips */
+      ip_addr.s_addr = pinfo->iph->saddr;
+      fprintf(stdout, "%s ", inet_ntoa(ip_addr));
+      ip_addr.s_addr = pinfo->iph->daddr;
+      fprintf(stdout, "%s ", inet_ntoa(ip_addr));
+      /* report the payload */
+      fprintf(stdout, "%i\n", pinfo->iph->tot_len - (pinfo->iph->ihl * BTOBYTE) - (pinfo->tcph->doff * BTOBYTE));
+    }
+  }
+}
 
 /* error message function for next_packet */
 void errexit(char *msg) {
@@ -304,6 +332,9 @@ unsigned short next_packet(int fd, struct pkt_info *pinfo) {
     pinfo->iph->protocol = pinfo->iph->protocol;
     pinfo->iph->saddr = pinfo->iph->saddr;
     pinfo->iph->daddr = pinfo->iph->daddr;
+    if (pinfo->iph->tot_len - pinfo->iph->ihl == 0)
+      /* no transport packet, nothing else to do */
+      return (1);
     /* if TCP packet,
           set pinfo->tcph to the start of the TCP header
           setup values in pinfo->tcph, as needed */
