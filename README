@@ -2,7 +2,7 @@ Author: Alex Wang axw582           Date: 15 Dec 2022
 
 ******************************************************************************************************
 
-The tool to help parse the contents of a network tracefile (ipv4) -- can be run in 3 different modes:
+A tool to help parse the contents of a network tracefile (ipv4) -- can be run in 3 different modes:
 
 usage: ./proj4 -t trace_file -s|-l|-p
 
